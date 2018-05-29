@@ -38,8 +38,12 @@ bg_grid = pygame.image.load('grid.png')
 bg_bridge = pygame.image.load('bridge01.jpg')
 bg_bridge_lg = pygame.transform.scale(bg_bridge, (m.floor(800*1.35), m.floor(555*1.35)))
 bg_bridge_lgrot = pygame.transform.rotate(bg_bridge_lg, 9)
+
 sprite = pygame.image.load('sprite.png')
 sprite_lg = pygame.transform.scale(sprite, (49,84))
+
+sprite_anim = pygame.image.load('sprite-sheet.png')
+sprite_anim = pygame.transform.scale(sprite_anim, (sprite_anim.get_width(), sprite_anim.get_height()))
 
 circle_r = pygame.image.load('circle-r.png')
 circle_rsm = pygame.transform.scale(circle_r, (6, 6))
@@ -98,7 +102,7 @@ def gameloop(hexmap='load'):
         
         #Initialize graphic objects
         def pawn(y,x):
-            gameDisplay.blit(sprite_lg, (x-25,y-75))
+            gameDisplay.blit(sprite_anim, (x-25,y-75))
         def gridmarker(y,x,color):
             if color=='r': gameDisplay.blit(circle_rsm, (x-3, y-3))
             if color=='b': gameDisplay.blit(circle_bsm, (x-3, y-3))
@@ -294,13 +298,22 @@ class Char:
         self.disp = disp
         self.loc = loc
         self.initiative = random.randint(1,21)
+        self.frameidx = random.randint(1,15)
         
-        self.pawnfile = 'sprite.png'
-        self.pawn = pygame.image.load(self.pawnfile)
-        self.pawn = pygame.transform.scale(self.pawn, (49,84))
+        self.pawnfile = 'sprite-sheet.png'
+        self.pawnsheet = pygame.image.load(self.pawnfile)
+        self.pawndims = (self.pawnsheet.get_width()*3, self.pawnsheet.get_height()*3)
+        self.pawnsheet = pygame.transform.scale(self.pawnsheet, (self.pawndims[0], self.pawndims[1]))
+        self.pawn = pygame.Surface((60, self.pawndims[1]), pygame.SRCALPHA)
         
     def anim(self, loc, action='stand'):
-        self.disp.blit(sprite_lg, (loc[1]-25,loc[0]-75))
+        self.pawn.fill(pygame.Color(0,0,0,0))
+        self.pawn.blit(self.pawnsheet, (0,0), (0+60*m.floor(self.frameidx/5),0,self.pawndims[1],self.pawndims[0]))
+        self.disp.blit(self.pawn,(loc[1]-25,loc[0]-95))
+        
+        #Increment or loop frame counter
+        if self.frameidx < 14: self.frameidx += 1
+        else: self.frameidx = 0
 
 
 e = gameloop(hexmap='load')
