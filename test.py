@@ -17,6 +17,7 @@ import numpy as np
 import traceback
 import csv
 import random
+from time import time
 #import matplotlib.pyplot as plt
 
 pygame.init()
@@ -45,17 +46,17 @@ sprite_lg = pygame.transform.scale(sprite, (49,84))
 sprite_anim = pygame.image.load('sprite-sheet.png')
 sprite_anim = pygame.transform.scale(sprite_anim, (sprite_anim.get_width(), sprite_anim.get_height()))
 
-circle_r = pygame.image.load('circle-r.png')
-circle_rsm = pygame.transform.scale(circle_r, (6, 6))
-circle_rlg = pygame.transform.scale(circle_r, (10, 10))
-circle_b = pygame.image.load('circle-b.png')
-circle_bsm = pygame.transform.scale(circle_b, (6, 6))
-circle_blg = pygame.transform.scale(circle_b, (10, 10))
-
-hextile = pygame.image.load('hex.png')
-hextile_sm = pygame.transform.scale(hextile, (67, 38))
-hexpoint = pygame.image.load('hex2.png')
-hexpoint_sm = pygame.transform.scale(hexpoint, (67, 38))
+#circle_r = pygame.image.load('circle-r.png')
+#circle_rsm = pygame.transform.scale(circle_r, (6, 6))
+#circle_rlg = pygame.transform.scale(circle_r, (10, 10))
+#circle_b = pygame.image.load('circle-b.png')
+#circle_bsm = pygame.transform.scale(circle_b, (6, 6))
+#circle_blg = pygame.transform.scale(circle_b, (10, 10))
+#
+#hextile = pygame.image.load('hex.png')
+#hextile_sm = pygame.transform.scale(hextile, (67, 38))
+#hexpoint = pygame.image.load('hex2.png')
+#hexpoint_sm = pygame.transform.scale(hexpoint, (67, 38))
 
 def gameloop(hexmap='load'):
     
@@ -96,23 +97,9 @@ def gameloop(hexmap='load'):
         char2 = Char(gameDisplay, origin, 'Char2')
         origin,_ = hexg.nearest_hex(100, 600)
         char3 = Char(gameDisplay, origin, 'Char3')
-        engmt = Engagement([char1, char2, char3])
+        engmt = Engagement(hexg,[char1, char2, char3])
         
         hexg.engmt = engmt
-        
-        #Initialize graphic objects
-        def pawn(y,x):
-            gameDisplay.blit(sprite_anim, (x-25,y-75))
-        def gridmarker(y,x,color):
-            if color=='r': gameDisplay.blit(circle_rsm, (x-3, y-3))
-            if color=='b': gameDisplay.blit(circle_bsm, (x-3, y-3))
-        def pointer(y,x,point_mode):
-            if point_mode=='paint:red': gameDisplay.blit(circle_rlg, (x-5, y-5))
-            if point_mode=='paint:blue': gameDisplay.blit(circle_blg, (x-5, y-5))
-        def cursor(y,x):
-            gameDisplay.blit(hexpoint_sm, (x-33, y-20))
-        def hexx(y,x):
-            gameDisplay.blit(hextile_sm, (x-33, y-20))
         
         #initialize pointer mode
         point_mode = 'move'
@@ -121,27 +108,20 @@ def gameloop(hexmap='load'):
         while not gameExit:
             
             #Draw background
-            gameDisplay.fill(white)
-            gameDisplay.blit(bg_bridge_lgrot, (-130,-150))
-            
+            hexg.render()
+
             #Check mouse position
-            mpos = pygame.mouse.get_pos()[::-1]
-            minloc, minidx = hexg.nearest_hex(mpos[0], mpos[1])
+            mpos_old = hexg.mpos
+            hexg.mpos = pygame.mouse.get_pos()[::-1]
+            hexg.mpos = (hexg.mpos[0]-hexg.sc_off[0], hexg.mpos[1]-hexg.sc_off[1])
+            minloc, minidx = hexg.nearest_hex(hexg.mpos[0], hexg.mpos[1])
             
             #Draw hexmap
-            for i in range(hexg.gridpts.shape[0]):
-                for j in range(hexg.gridpts.shape[1]):
-                    if hexg.gridpts[i,j,2] == 1:
-                        gridmarker(hexg.gridpts[i,j,0],hexg.gridpts[i,j,1], 'r')
-                    elif hexg.gridpts[i,j,2] == 2:
-                        gridmarker(hexg.gridpts[i,j,0],hexg.gridpts[i,j,1], 'b')
+            hexg.hexmap()
             
             #Draw movement range
-            if point_mode == 'move':
-                tiles = hexg.path_check(4, engmt.activeunit.loc)
-                for tile in tiles:
-                    hexx(tile[0], tile[1])
-            else:tiles = np.empty([0,3])
+            if point_mode == 'move': hexg.disp_range()
+            else: hexg.tiles = np.empty([0,3])
             
             #Check for input events
             for event in pygame.event.get():
@@ -150,16 +130,25 @@ def gameloop(hexmap='load'):
                 if event.type == pygame.QUIT:
                     gameExit = True
                  
-                #On LEFT CLICK, move char or paint tile
+                #On LEFT CLICK (down), start timer
                 if event.type == pygame.MOUSEBUTTONDOWN:
                     if event.button == 1:
-                        if point_mode == 'move' and np.all(tiles[:,:2]==minloc, axis=1).any():
-                            engmt.activeunit.loc = minloc
-                            engmt.next()
-                        if point_mode == 'paint:red':
-                            hexg.gridpts[minidx[0],minidx[1],2] = 1
-                        if point_mode == 'paint:blue':
-                            hexg.gridpts[minidx[0],minidx[1],2] = 2
+                        hexg.mouse_hold = True
+                        t_click = time()
+                
+                #On LEFT CLICK (release), move char or paint tile
+                if event.type == pygame.MOUSEBUTTONUP:
+                    if event.button == 1:
+                        hexg.mouse_hold = False
+                        t_click = time() - t_click
+                        if t_click < 0.2: #If click is short
+                            if point_mode == 'move' and np.all(hexg.tiles[:,:2]==minloc, axis=1).any():
+                                engmt.activeunit.loc = minloc
+                                engmt.next()
+                            if point_mode == 'paint:red':
+                                hexg.gridpts[minidx[0], minidx[1],2] = 1
+                            if point_mode == 'paint:blue':
+                                hexg.gridpts[minidx[0], minidx[1],2] = 2
                 
                 #On SPACEBAR, change pointer mode
                 if event.type == pygame.KEYDOWN:
@@ -169,15 +158,23 @@ def gameloop(hexmap='load'):
                         elif point_mode == 'paint:blue': point_mode = 'move'
             
             #Draw pointer at nearest hex
-            cursor(minloc[0], minloc[1])
-            pointer(mpos[0],mpos[1],point_mode)
+            hexg.cursor(minloc[0]+hexg.sc_off[0], minloc[1]+hexg.sc_off[1])
+            hexg.pointer(hexg.mpos[0],hexg.mpos[1],point_mode)
         
             #Draw Characters
-            cursor(engmt.activeunit.loc[0], engmt.activeunit.loc[1])
+            #cursor(engmt.activeunit.loc[0], engmt.activeunit.loc[1])
             engmt.render()
         
             pygame.display.update()
             clock.tick(30)
+        
+            if hexg.mouse_hold:
+                mpos_off = (mpos_old[0] - hexg.mpos[0], mpos_old[1] - hexg.mpos[1])
+                print("Offset: ", mpos_off)
+                if np.linalg.norm(mpos_off) > 0:
+                    hexg.sc_off = (hexg.sc_off[0] - mpos_off[0], hexg.sc_off[1] - mpos_off[1])
+                    hexg.mpos = (hexg.mpos[0] + mpos_off[0], hexg.mpos[1] + mpos_off[1])
+                print("Grdloc: ", hexg.sc_off)
         
         #Save hexmap
         if hexmap=='load':
@@ -203,6 +200,28 @@ class HexGrid:
         self.gridpts = None
         self.griddim = None
         self.engmt = None
+        self.sc_off = (0,0)
+        self.mouse_hold = False
+        self.tiles = None
+        self.mpos = None
+        
+        self.bgfile = 'bridge01.jpg'
+        self.bgimg = pygame.image.load('bridge01.jpg')
+        self.bgimg = pygame.transform.scale(self.bgimg, (m.floor(800*1.35), m.floor(555*1.35)))
+        self.bgimg = pygame.transform.rotate(self.bgimg, 9)
+        
+        self.hextile = pygame.image.load('hex.png')
+        self.hextile = pygame.transform.scale(self.hextile, (67, 38))
+        self.hexpoint = pygame.image.load('hex2.png')
+        self.hexpoint = pygame.transform.scale(self.hexpoint, (67, 38))
+
+        self.circle_r = pygame.image.load('circle-r.png')
+        self.circle_rsm = pygame.transform.scale(self.circle_r, (6, 6))
+        self.circle_rlg = pygame.transform.scale(self.circle_r, (10, 10))
+        self.circle_b = pygame.image.load('circle-b.png')
+        self.circle_bsm = pygame.transform.scale(self.circle_b, (6, 6))
+        self.circle_blg = pygame.transform.scale(self.circle_b, (10, 10))
+        
     
     #Return all tiles within <dist> tiles of <origin>, ignoring obstacles
     def dist_check(self, dist, origin, blocked = True):
@@ -221,6 +240,27 @@ class HexGrid:
             tiles = np.vstack(row for row in tiles if not np.all(self.engmt.loclist==row[:2], 1).any())
         
         return tiles
+    
+    def hexmap(self):
+        for i in range(self.gridpts.shape[0]):
+                for j in range(self.gridpts.shape[1]):
+                    if self.gridpts[i,j,2] == 1:
+                        self.gridmarker(self.gridpts[i,j,0]+self.sc_off[0], self.gridpts[i,j,1]+self.sc_off[1], 'r')
+                    elif self.gridpts[i,j,2] == 2:
+                        self.gridmarker(self.gridpts[i,j,0]+self.sc_off[0], self.gridpts[i,j,1]+self.sc_off[1], 'b')
+    
+    #Initialize draw functions
+    def hexx(self, y, x):
+        gameDisplay.blit(self.hextile, (x-33, y-20))
+    def cursor(self, y,x):
+        gameDisplay.blit(self.hexpoint, (x-33, y-20))
+    def pointer(self, y,x,point_mode):
+        if point_mode=='paint:red': gameDisplay.blit(self.circle_rlg, (x-5, y-5))
+        if point_mode=='paint:blue': gameDisplay.blit(self.circle_blg, (x-5, y-5))
+        
+    def gridmarker(self, y, x, color):
+        if color=='r': gameDisplay.blit(self.circle_rsm, (x-3, y-3))
+        if color=='b': gameDisplay.blit(self.circle_bsm, (x-3, y-3))
     
     #Return all tiles within <dist> tiles of <origin>, avoiding obstacles
     def path_check(self, dist, origin, blocked = True):
@@ -245,11 +285,23 @@ class HexGrid:
         minloc = (self.gridpts[minidx[0],minidx[1],0], self.gridpts[minidx[0],minidx[1],1])
         
         return minloc, minidx
+    
+    def disp_range(self):
+        self.tiles = self.path_check(4, self.engmt.activeunit.loc)
+        for tile in self.tiles:
+            self.hexx(tile[0]+self.sc_off[0], tile[1]+self.sc_off[1])
+        #else:tiles = np.empty([0,3])
+    
+    def render(self):
+        gameDisplay.fill((255,255,255))
+        gameDisplay.blit(self.bgimg, (-130+self.sc_off[1],-150+self.sc_off[0]))
+        
 
 class Engagement:
     
-    def __init__(self, unitlist):
+    def __init__(self, hexg, unitlist):
         self.unitlist = np.array(unitlist)
+        self.hexg = hexg
         
         #Check initiatives and activate first character
         self.check_init()
@@ -258,21 +310,19 @@ class Engagement:
         print('Active: %s' % self.activeunit.name)
         
         self.check_locs()
-        
-        print(self.initlist)
-        print(self.loclist)
     
-    
+    #Update and print initiative order
     def check_init(self):
         self.initlist = np.empty([0])
         for unit in self.unitlist:
             self.initlist = np.append(self.initlist, unit.initiative)
-        self.unitlist = self.unitlist[np.argsort(self.initlist)]
+        self.unitlist = self.unitlist[np.flipud(np.argsort(self.initlist))]
         print('----------')
         for unit in self.unitlist:
             print('%s: %i' % (unit.name, unit.initiative))
         print('----------')
-        
+    
+    #Update unit location list
     def check_locs(self):
         self.loclist = np.zeros((0,2))
         for unit in self.unitlist:
@@ -281,8 +331,9 @@ class Engagement:
     #Draw all characters
     def render(self):
         self.check_locs()
+        self.hexg.cursor(self.activeunit.loc[0]+self.hexg.sc_off[0], self.activeunit.loc[1]+self.hexg.sc_off[1])
         for unit in self.unitlist[np.argsort(self.loclist[:,0])]:
-            unit.anim(unit.loc)
+            unit.anim((unit.loc[0]+self.hexg.sc_off[0], unit.loc[1]+self.hexg.sc_off[1]))
             
     def next(self):
         if self.turncount<self.unitlist.size-1:
@@ -297,8 +348,8 @@ class Char:
         self.name = name
         self.disp = disp
         self.loc = loc
-        self.initiative = random.randint(1,21)
-        self.frameidx = random.randint(1,15)
+        self.initiative = random.randint(1,21) #Randomize initiative order
+        self.frameidx = random.randint(1,15) #Randomize frame offset
         
         self.pawnfile = 'sprite-sheet.png'
         self.pawnsheet = pygame.image.load(self.pawnfile)
