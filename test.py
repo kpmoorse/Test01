@@ -2,7 +2,7 @@
 """
 Created on Thu May 24 08:56:07 2018
 
-@author: ic_admin
+@author: Kellan Moorse
 """
 
 #Container for display parameters
@@ -28,35 +28,9 @@ gdisp.H = 600
 gameDisplay = pygame.display.set_mode((gdisp.W,gdisp.H))
 pygame.display.set_caption('Test Window')
 
-black = (0,0,0)
 white = (255,255,255)
 
-car_width = 73
-
 clock = pygame.time.Clock()
-
-bg_grid = pygame.image.load('grid.png')
-bg_bridge = pygame.image.load('bridge01.jpg')
-bg_bridge_lg = pygame.transform.scale(bg_bridge, (m.floor(800*1.35), m.floor(555*1.35)))
-bg_bridge_lgrot = pygame.transform.rotate(bg_bridge_lg, 9)
-
-sprite = pygame.image.load('sprite.png')
-sprite_lg = pygame.transform.scale(sprite, (49,84))
-
-sprite_anim = pygame.image.load('sprite-sheet.png')
-sprite_anim = pygame.transform.scale(sprite_anim, (sprite_anim.get_width(), sprite_anim.get_height()))
-
-#circle_r = pygame.image.load('circle-r.png')
-#circle_rsm = pygame.transform.scale(circle_r, (6, 6))
-#circle_rlg = pygame.transform.scale(circle_r, (10, 10))
-#circle_b = pygame.image.load('circle-b.png')
-#circle_bsm = pygame.transform.scale(circle_b, (6, 6))
-#circle_blg = pygame.transform.scale(circle_b, (10, 10))
-#
-#hextile = pygame.image.load('hex.png')
-#hextile_sm = pygame.transform.scale(hextile, (67, 38))
-#hexpoint = pygame.image.load('hex2.png')
-#hexpoint_sm = pygame.transform.scale(hexpoint, (67, 38))
 
 def gameloop(hexmap='load'):
     
@@ -156,6 +130,10 @@ def gameloop(hexmap='load'):
                         if point_mode == 'move': point_mode = 'paint:red'
                         elif point_mode == 'paint:red': point_mode = 'paint:blue'
                         elif point_mode == 'paint:blue': point_mode = 'move'
+                    if event.key == 116:
+                        #hexg.sc_target = (hexg.sc_off[0], hexg.sc_off[1]+100)
+                        hexg.sc_target = (0,0)
+                    print(event)
             
             #Draw pointer at nearest hex
             hexg.cursor(minloc[0]+hexg.sc_off[0], minloc[1]+hexg.sc_off[1])
@@ -170,11 +148,10 @@ def gameloop(hexmap='load'):
         
             if hexg.mouse_hold:
                 mpos_off = (mpos_old[0] - hexg.mpos[0], mpos_old[1] - hexg.mpos[1])
-                print("Offset: ", mpos_off)
                 if np.linalg.norm(mpos_off) > 0:
                     hexg.sc_off = (hexg.sc_off[0] - mpos_off[0], hexg.sc_off[1] - mpos_off[1])
+                    hexg.sc_target = hexg.sc_off
                     hexg.mpos = (hexg.mpos[0] + mpos_off[0], hexg.mpos[1] + mpos_off[1])
-                print("Grdloc: ", hexg.sc_off)
         
         #Save hexmap
         if hexmap=='load':
@@ -201,6 +178,7 @@ class HexGrid:
         self.griddim = None
         self.engmt = None
         self.sc_off = (0,0)
+        self.sc_target = (0,0)
         self.mouse_hold = False
         self.tiles = None
         self.mpos = None
@@ -257,7 +235,6 @@ class HexGrid:
     def pointer(self, y,x,point_mode):
         if point_mode=='paint:red': gameDisplay.blit(self.circle_rlg, (x-5, y-5))
         if point_mode=='paint:blue': gameDisplay.blit(self.circle_blg, (x-5, y-5))
-        
     def gridmarker(self, y, x, color):
         if color=='r': gameDisplay.blit(self.circle_rsm, (x-3, y-3))
         if color=='b': gameDisplay.blit(self.circle_bsm, (x-3, y-3))
@@ -293,8 +270,14 @@ class HexGrid:
         #else:tiles = np.empty([0,3])
     
     def render(self):
+        #Move screen toward target
+        if np.linalg.norm(tplop(self.sc_off,self.sc_target,"sub"))>25:
+            resid = tplop(self.sc_off, self.sc_target, "sub")
+            self.sc_off = tplop(self.sc_off, (resid[0]/10, resid[1]/10), "sub")
+        
+        #Draw background
         gameDisplay.fill((255,255,255))
-        gameDisplay.blit(self.bgimg, (-130+self.sc_off[1],-150+self.sc_off[0]))
+        gameDisplay.blit(self.bgimg, (-120+self.sc_off[1],-150+self.sc_off[0]))
         
 
 class Engagement:
@@ -305,9 +288,8 @@ class Engagement:
         
         #Check initiatives and activate first character
         self.check_init()
-        self.turncount = 0
-        self.activeunit = self.unitlist[0]
-        print('Active: %s' % self.activeunit.name)
+        self.turncount = -1
+        self.next()
         
         self.check_locs()
     
@@ -340,6 +322,7 @@ class Engagement:
             self.turncount += 1
         else: self.turncount = 0
         self.activeunit = self.unitlist[self.turncount]
+        self.hexg.sc_target = tplop(tplop(self.activeunit.loc,-1,"mult"), (400,400), "add")
         print('Active: %s' % self.activeunit.name)
 
 class Char:
@@ -366,6 +349,16 @@ class Char:
         if self.frameidx < 14: self.frameidx += 1
         else: self.frameidx = 0
 
+def tplop(a,b,op):
+    if (op=="add" or op=="sub") and (len(a) != len(b)):
+        print("For add/subtract, input tuples must be of equivalent length")
+        return None
+    if op=="add": c = tuple(a[i]+b[i] for i in range(len(a)))
+    elif op=="sub": c = tuple(a[i]-b[i] for i in range(len(a)))
+    if op=="mult": c = tuple(a[i]*b for i in range(len(a)))
+
+    return c
+        
 
 e = gameloop(hexmap='load')
 pygame.quit()
