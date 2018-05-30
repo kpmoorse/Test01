@@ -18,6 +18,7 @@ import traceback
 import csv
 import random
 from time import time
+from queue import Queue
 #import matplotlib.pyplot as plt
 
 pygame.init()
@@ -116,7 +117,8 @@ def gameloop(hexmap='load'):
                         hexg.mouse_hold = False
                         t_click = time() - t_click
                         if t_click < 0.2: #If click is short
-                            if point_mode == 'move' and np.all(hexg.tiles[:,:2]==minloc, axis=1).any():
+#                            if point_mode == 'move' and np.all(hexg.tiles[:,:2]==minloc, axis=1).any():
+                            if point_mode == 'move' and minloc in hexg.tiles:
                                 engmt.activeunit.loc = minloc
                                 engmt.next()
                             if point_mode == 'paint:red':
@@ -124,20 +126,26 @@ def gameloop(hexmap='load'):
                             if point_mode == 'paint:blue':
                                 hexg.gridpts[minidx[0], minidx[1],2] = 2
                 
-                #On SPACEBAR, change pointer mode
                 if event.type == pygame.KEYDOWN:
+                    #On SPACEBAR, change pointer mode
                     if event.key == 32:
                         if point_mode == 'move': point_mode = 'paint:red'
                         elif point_mode == 'paint:red': point_mode = 'paint:blue'
                         elif point_mode == 'paint:blue': point_mode = 'move'
-                    if event.key == 116:
-                        #hexg.sc_target = (hexg.sc_off[0], hexg.sc_off[1]+100)
-                        hexg.sc_target = (0,0)
+                    #On T, reset screen offset target to (0,0)
+                    if event.key == 116: hexg.sc_target = (0,0)
+                    #On ESC, exit game
+                    if event.key == 27: gameExit = True
+                        
                     print(event)
             
             #Draw pointer at nearest hex
             hexg.cursor(minloc[0]+hexg.sc_off[0], minloc[1]+hexg.sc_off[1])
             hexg.pointer(hexg.mpos[0],hexg.mpos[1],point_mode)
+            if minloc in hexg.path_check2(engmt.activeunit.loc, 5):
+                for hexx in hexg.pathfind_bf(engmt.activeunit.loc, minloc):
+                    hexg.cursor_mini(hexx[0]+hexg.sc_off[0], hexx[1]+hexg.sc_off[1])
+                
         
             #Draw Characters
             #cursor(engmt.activeunit.loc[0], engmt.activeunit.loc[1])
@@ -202,7 +210,7 @@ class HexGrid:
         
     
     #Return all tiles within <dist> tiles of <origin>, ignoring obstacles
-    def dist_check(self, dist, origin, blocked = True):
+    def dist_check(self, origin, dist, blocked = True):
         dy = (self.gridpts[:,:,0] - np.tile(origin[0], self.griddim))*2
         dx = self.gridpts[:,:,1] - np.tile(origin[1], self.griddim)
         
@@ -219,6 +227,71 @@ class HexGrid:
         
         return tiles
     
+    #Return all tiles within <dist> tiles of <origin>, avoiding obstacles
+    def path_check(self, origin, dist, blocked = True):
+        tiles = self.dist_check(origin, 1)
+        tiles_new = tiles
+        for i in range(dist-1):
+            tiles_check = tiles_new
+            tiles_new = np.empty((0,3))
+            for tile in tiles_check:
+                tiles_new = np.append(tiles_new, self.dist_check(tile[:2], 1),0)
+            tiles = np.append(tiles, tiles_new, 0)
+            tiles = tiles[np.where(np.any(tiles[:,:2]!=origin, axis=1))]
+        tiles = np.unique(tiles, axis=0)
+  
+        return tiles
+    
+    def path_check2(self, origin, dist):
+        visited = set()
+        visited.add(origin)
+        fringes = [[]]
+        fringes[0].append(list(origin))
+        
+        for k in range(1,dist+1):
+            fringes.append([])
+            for hexx in fringes[k-1]:
+                for neighbor in self.dist_check(hexx, 1)[:,:2]:
+                    neighbor = tuple(neighbor)
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        fringes[k].append(neighbor)
+        
+        visited.remove(origin)
+        return visited
+    
+    def disp_range(self):
+        self.tiles = self.path_check2(self.engmt.activeunit.loc, 5)
+        for tile in self.tiles:
+            self.hexx(tile[0]+self.sc_off[0], tile[1]+self.sc_off[1])
+    
+    #Find hex path from <origin> to <target> via breadth-first search
+    def pathfind_bf(self, origin, target):
+        frontier = Queue()
+        frontier.put(origin)
+        came_from = {}
+        came_from[origin] = None
+        
+        while not frontier.empty():
+            current = frontier.get()
+            if current == target: break
+            for hexx in self.dist_check(current, 1)[:,:2]:
+                hexx = tuple(hexx)
+                if hexx not in came_from:
+                    frontier.put(hexx)
+                    came_from[hexx] = current
+                    
+        current = target
+        path = []
+        while current != origin:
+            path.append(current)
+            current = came_from[current]
+        path.append(origin)
+        path.reverse()
+        
+        return path
+    
+    #Generate blank hexmap
     def hexmap(self):
         for i in range(self.gridpts.shape[0]):
                 for j in range(self.gridpts.shape[1]):
@@ -230,8 +303,10 @@ class HexGrid:
     #Initialize draw functions
     def hexx(self, y, x):
         gameDisplay.blit(self.hextile, (x-33, y-20))
-    def cursor(self, y,x):
+    def cursor(self, y, x):
         gameDisplay.blit(self.hexpoint, (x-33, y-20))
+    def cursor_mini(self, y, x):
+        gameDisplay.blit(pygame.transform.scale(self.hexpoint, (34,20)), (x-17, y-11))
     def pointer(self, y,x,point_mode):
         if point_mode=='paint:red': gameDisplay.blit(self.circle_rlg, (x-5, y-5))
         if point_mode=='paint:blue': gameDisplay.blit(self.circle_blg, (x-5, y-5))
@@ -239,22 +314,7 @@ class HexGrid:
         if color=='r': gameDisplay.blit(self.circle_rsm, (x-3, y-3))
         if color=='b': gameDisplay.blit(self.circle_bsm, (x-3, y-3))
     
-    #Return all tiles within <dist> tiles of <origin>, avoiding obstacles
-    def path_check(self, dist, origin, blocked = True):
-        tiles = self.dist_check(1, origin)
-        tiles_new = tiles
-        for i in range(dist-1):
-            tiles_check = tiles_new
-            tiles_new = np.empty((0,3))
-            for tile in tiles_check:
-                tiles_new = np.append(tiles_new, self.dist_check(1, tile[:2]),0)
-            tiles = np.append(tiles, tiles_new, 0)
-            tiles = tiles[np.where(np.any(tiles[:,:2]!=origin, axis=1))]
-        tiles = np.unique(tiles, axis=0)
-  
-        return tiles
-    
-    #Find position and index of the hex nearest to the input coordinates
+    #Find position and index of the hex nearest to the y-x input coordinates
     def nearest_hex(self, y, x):
         dist = np.sqrt(np.square(self.gridpts[:,:,0] - np.tile(y,self.griddim)) + np.square(self.gridpts[:,:,1] - np.tile(x,self.griddim)))
         minidx = np.where(dist==dist.min())
@@ -262,13 +322,7 @@ class HexGrid:
         minloc = (self.gridpts[minidx[0],minidx[1],0], self.gridpts[minidx[0],minidx[1],1])
         
         return minloc, minidx
-    
-    def disp_range(self):
-        self.tiles = self.path_check(4, self.engmt.activeunit.loc)
-        for tile in self.tiles:
-            self.hexx(tile[0]+self.sc_off[0], tile[1]+self.sc_off[1])
-        #else:tiles = np.empty([0,3])
-    
+
     def render(self):
         #Move screen toward target
         if np.linalg.norm(tplop(self.sc_off,self.sc_target,"sub"))>25:
