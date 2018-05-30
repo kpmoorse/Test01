@@ -89,13 +89,14 @@ def gameloop(hexmap='load'):
             mpos_old = hexg.mpos
             hexg.mpos = pygame.mouse.get_pos()[::-1]
             hexg.mpos = (hexg.mpos[0]-hexg.sc_off[0], hexg.mpos[1]-hexg.sc_off[1])
-            minloc, minidx = hexg.nearest_hex(hexg.mpos[0], hexg.mpos[1])
+            mpos_hex, mpos_hidx = hexg.nearest_hex(hexg.mpos[0], hexg.mpos[1])
             
             #Draw hexmap
             hexg.hexmap()
             
             #Draw movement range
-            if point_mode == 'move': hexg.disp_range()
+            if point_mode == 'move' and engmt.activeunit.action == "move:input":
+                hexg.disp_range(engmt.activeunit.loc, engmt.activeunit.mvmt)
             else: hexg.tiles = np.empty([0,3])
             
             #Check for input events
@@ -117,14 +118,15 @@ def gameloop(hexmap='load'):
                         hexg.mouse_hold = False
                         t_click = time() - t_click
                         if t_click < 0.2: #If click is short
-#                            if point_mode == 'move' and np.all(hexg.tiles[:,:2]==minloc, axis=1).any():
-                            if point_mode == 'move' and minloc in hexg.tiles:
-                                engmt.activeunit.loc = minloc
-                                engmt.next()
+                            if point_mode == 'move' and mpos_hex in hexg.tiles:
+                                engmt.activeunit.path = hexg.pathfind_bf(engmt.activeunit.loc, mpos_hex)
+                                engmt.activeunit.action = "move:anim"
+                                #engmt.activeunit.loc = mpos_hex
+                                #engmt.next()
                             if point_mode == 'paint:red':
-                                hexg.gridpts[minidx[0], minidx[1],2] = 1
+                                hexg.gridpts[mpos_hidx[0], mpos_hidx[1],2] = 1
                             if point_mode == 'paint:blue':
-                                hexg.gridpts[minidx[0], minidx[1],2] = 2
+                                hexg.gridpts[mpos_hidx[0], mpos_hidx[1],2] = 2
                 
                 if event.type == pygame.KEYDOWN:
                     #On SPACEBAR, change pointer mode
@@ -140,15 +142,13 @@ def gameloop(hexmap='load'):
                     print(event)
             
             #Draw pointer at nearest hex
-            hexg.cursor(minloc[0]+hexg.sc_off[0], minloc[1]+hexg.sc_off[1])
-            hexg.pointer(hexg.mpos[0],hexg.mpos[1],point_mode)
-            if minloc in hexg.path_check2(engmt.activeunit.loc, 5):
-                for hexx in hexg.pathfind_bf(engmt.activeunit.loc, minloc):
+            hexg.cursor(mpos_hex[0]+hexg.sc_off[0], mpos_hex[1]+hexg.sc_off[1])
+            hexg.pointer(hexg.mpos[0]+hexg.sc_off[0],hexg.mpos[1]+hexg.sc_off[1],point_mode)
+            if engmt.activeunit.action == "move:input" and mpos_hex in hexg.path_check2(engmt.activeunit.loc, engmt.activeunit.mvmt):
+                for hexx in hexg.pathfind_bf(engmt.activeunit.loc, mpos_hex):
                     hexg.cursor_mini(hexx[0]+hexg.sc_off[0], hexx[1]+hexg.sc_off[1])
-                
         
             #Draw Characters
-            #cursor(engmt.activeunit.loc[0], engmt.activeunit.loc[1])
             engmt.render()
         
             pygame.display.update()
@@ -260,8 +260,8 @@ class HexGrid:
         visited.remove(origin)
         return visited
     
-    def disp_range(self):
-        self.tiles = self.path_check2(self.engmt.activeunit.loc, 5)
+    def disp_range(self, origin, dist):
+        self.tiles = self.path_check2(origin, dist)
         for tile in self.tiles:
             self.hexx(tile[0]+self.sc_off[0], tile[1]+self.sc_off[1])
     
@@ -272,6 +272,7 @@ class HexGrid:
         came_from = {}
         came_from[origin] = None
         
+        #Generate path map
         while not frontier.empty():
             current = frontier.get()
             if current == target: break
@@ -280,13 +281,14 @@ class HexGrid:
                 if hexx not in came_from:
                     frontier.put(hexx)
                     came_from[hexx] = current
-                    
+        
+        #Backpropagate path from target to origin  
         current = target
         path = []
         while current != origin:
             path.append(current)
             current = came_from[current]
-        path.append(origin)
+        #path.append(origin)
         path.reverse()
         
         return path
@@ -317,11 +319,11 @@ class HexGrid:
     #Find position and index of the hex nearest to the y-x input coordinates
     def nearest_hex(self, y, x):
         dist = np.sqrt(np.square(self.gridpts[:,:,0] - np.tile(y,self.griddim)) + np.square(self.gridpts[:,:,1] - np.tile(x,self.griddim)))
-        minidx = np.where(dist==dist.min())
-        minidx = (minidx[0][0], minidx[1][0])
-        minloc = (self.gridpts[minidx[0],minidx[1],0], self.gridpts[minidx[0],minidx[1],1])
+        mpos_hidx = np.where(dist==dist.min())
+        mpos_hidx = (mpos_hidx[0][0], mpos_hidx[1][0])
+        mpos_hex = (self.gridpts[mpos_hidx[0],mpos_hidx[1],0], self.gridpts[mpos_hidx[0],mpos_hidx[1],1])
         
-        return minloc, minidx
+        return mpos_hex, mpos_hidx
 
     def render(self):
         #Move screen toward target
@@ -366,11 +368,25 @@ class Engagement:
     
     #Draw all characters
     def render(self):
+        if self.activeunit.action == "move:anim":
+            if len(self.activeunit.path) == 0:
+                self.activeunit.action = "move:input"
+                self.next()
+            else:
+                to_target = tplop(self.activeunit.path[0], self.activeunit.loc, "sub")
+                if np.linalg.norm(to_target) < 5:
+                    self.activeunit.loc = self.activeunit.path[0]
+                    self.activeunit.path = self.activeunit.path[1:]
+                else:
+                    self.activeunit.loc = tplop(self.activeunit.loc, tplop(to_target, 1/np.linalg.norm(to_target)*5, "mult"), "add")
+                self.activeunit
+        
         self.check_locs()
         self.hexg.cursor(self.activeunit.loc[0]+self.hexg.sc_off[0], self.activeunit.loc[1]+self.hexg.sc_off[1])
         for unit in self.unitlist[np.argsort(self.loclist[:,0])]:
             unit.anim((unit.loc[0]+self.hexg.sc_off[0], unit.loc[1]+self.hexg.sc_off[1]))
-            
+    
+    #Move to next unit in initiative order
     def next(self):
         if self.turncount<self.unitlist.size-1:
             self.turncount += 1
@@ -387,6 +403,9 @@ class Char:
         self.loc = loc
         self.initiative = random.randint(1,21) #Randomize initiative order
         self.frameidx = random.randint(1,15) #Randomize frame offset
+        self.mvmt = 3
+        self.action = "move:input"
+        self.path = []
         
         self.pawnfile = 'sprite-sheet.png'
         self.pawnsheet = pygame.image.load(self.pawnfile)
