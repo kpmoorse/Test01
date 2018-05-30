@@ -97,6 +97,8 @@ def gameloop(hexmap='load'):
             #Draw movement range
             if point_mode == 'move' and engmt.activeunit.action == "move:input":
                 hexg.disp_range(engmt.activeunit.loc, engmt.activeunit.mvmt)
+            elif point_mode == 'move' and engmt.activeunit.action == "atk:input":
+                hexg.disp_range(engmt.activeunit.loc, engmt.activeunit.atkrng, blktype="atk")
             else: hexg.tiles = np.empty([0,3])
             
             #Check for input events
@@ -134,6 +136,10 @@ def gameloop(hexmap='load'):
                         if point_mode == 'move': point_mode = 'paint:red'
                         elif point_mode == 'paint:red': point_mode = 'paint:blue'
                         elif point_mode == 'paint:blue': point_mode = 'move'
+                    #On M, begin movement input
+                    if event.key == 109: engmt.activeunit.action = "move:input"
+                    #On A, begin attack input
+                    if event.key == 97: engmt.activeunit.action = "atk:input"
                     #On T, reset screen offset target to (0,0)
                     if event.key == 116: hexg.sc_target = (0,0)
                     #On ESC, exit game
@@ -142,7 +148,8 @@ def gameloop(hexmap='load'):
                     print(event)
             
             #Draw pointer at nearest hex
-            hexg.cursor(mpos_hex[0]+hexg.sc_off[0], mpos_hex[1]+hexg.sc_off[1])
+            if engmt.activeunit.action == "move:input":
+                hexg.cursor(mpos_hex[0]+hexg.sc_off[0], mpos_hex[1]+hexg.sc_off[1])
             hexg.pointer(hexg.mpos[0]+hexg.sc_off[0],hexg.mpos[1]+hexg.sc_off[1],point_mode)
             if engmt.activeunit.action == "move:input" and mpos_hex in hexg.path_check2(engmt.activeunit.loc, engmt.activeunit.mvmt):
                 for hexx in hexg.pathfind_bf(engmt.activeunit.loc, mpos_hex):
@@ -210,7 +217,7 @@ class HexGrid:
         
     
     #Return all tiles within <dist> tiles of <origin>, ignoring obstacles
-    def dist_check(self, origin, dist, blocked = True):
+    def dist_check(self, origin, dist, blktype="move_gnd"):
         dy = (self.gridpts[:,:,0] - np.tile(origin[0], self.griddim))*2
         dx = self.gridpts[:,:,1] - np.tile(origin[1], self.griddim)
         
@@ -221,28 +228,29 @@ class HexGrid:
         rgb_dist = np.max(np.abs(rgb_dist), axis=0)
         
         tiles = self.gridpts[np.where(rgb_dist == dist)]
-        if blocked:
+        if blktype in ["move_gnd", "move_air", "atk"]:
             tiles = tiles[np.where(tiles[:,2]==1)]
+        if blktype in ["move_gnd", "move_air"]:
             tiles = np.vstack(row for row in tiles if not np.all(self.engmt.loclist==row[:2], 1).any())
         
         return tiles
     
     #Return all tiles within <dist> tiles of <origin>, avoiding obstacles
-    def path_check(self, origin, dist, blocked = True):
+    def path_check(self, origin, dist, blktype="move_gnd"):
         tiles = self.dist_check(origin, 1)
         tiles_new = tiles
         for i in range(dist-1):
             tiles_check = tiles_new
             tiles_new = np.empty((0,3))
             for tile in tiles_check:
-                tiles_new = np.append(tiles_new, self.dist_check(tile[:2], 1),0)
+                tiles_new = np.append(tiles_new, self.dist_check(tile[:2], 1, blktype),0)
             tiles = np.append(tiles, tiles_new, 0)
             tiles = tiles[np.where(np.any(tiles[:,:2]!=origin, axis=1))]
         tiles = np.unique(tiles, axis=0)
   
         return tiles
     
-    def path_check2(self, origin, dist):
+    def path_check2(self, origin, dist, blktype="move_gnd"):
         visited = set()
         visited.add(origin)
         fringes = [[]]
@@ -251,7 +259,7 @@ class HexGrid:
         for k in range(1,dist+1):
             fringes.append([])
             for hexx in fringes[k-1]:
-                for neighbor in self.dist_check(hexx, 1)[:,:2]:
+                for neighbor in self.dist_check(hexx, 1, blktype)[:,:2]:
                     neighbor = tuple(neighbor)
                     if neighbor not in visited:
                         visited.add(neighbor)
@@ -260,8 +268,8 @@ class HexGrid:
         visited.remove(origin)
         return visited
     
-    def disp_range(self, origin, dist):
-        self.tiles = self.path_check2(origin, dist)
+    def disp_range(self, origin, dist, blktype="move_gnd"):
+        self.tiles = self.path_check2(origin, dist, blktype)
         for tile in self.tiles:
             self.hexx(tile[0]+self.sc_off[0], tile[1]+self.sc_off[1])
     
@@ -393,10 +401,12 @@ class Engagement:
         else: self.turncount = 0
         self.activeunit = self.unitlist[self.turncount]
         self.hexg.sc_target = tplop(tplop(self.activeunit.loc,-1,"mult"), (400,400), "add")
+        self.activeunit.action = "menu:input"
         print('Active: %s' % self.activeunit.name)
 
 class Char:
     
+    #Initialize character object
     def __init__(self, disp, loc, name):
         self.name = name
         self.disp = disp
@@ -404,7 +414,8 @@ class Char:
         self.initiative = random.randint(1,21) #Randomize initiative order
         self.frameidx = random.randint(1,15) #Randomize frame offset
         self.mvmt = 3
-        self.action = "move:input"
+        self.atkrng = 1
+        self.action = "menu:input"
         self.path = []
         
         self.pawnfile = 'sprite-sheet.png'
@@ -412,7 +423,8 @@ class Char:
         self.pawndims = (self.pawnsheet.get_width()*3, self.pawnsheet.get_height()*3)
         self.pawnsheet = pygame.transform.scale(self.pawnsheet, (self.pawndims[0], self.pawndims[1]))
         self.pawn = pygame.Surface((60, self.pawndims[1]), pygame.SRCALPHA)
-        
+    
+    #Cycle through animation frames
     def anim(self, loc, action='stand'):
         self.pawn.fill(pygame.Color(0,0,0,0))
         self.pawn.blit(self.pawnsheet, (0,0), (0+60*m.floor(self.frameidx/5),0,self.pawndims[1],self.pawndims[0]))
@@ -422,6 +434,7 @@ class Char:
         if self.frameidx < 14: self.frameidx += 1
         else: self.frameidx = 0
 
+#Perform an operation on one or two tuples
 def tplop(a,b,op):
     if (op=="add" or op=="sub") and (len(a) != len(b)):
         print("For add/subtract, input tuples must be of equivalent length")
