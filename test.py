@@ -129,10 +129,8 @@ def gameloop(hexmap='load'):
                             if point_mode == 'move' and mpos_hex in hexg.tiles:
                                 engmt.activeunit.path = hexg.pathfind_bf(engmt.activeunit.loc, mpos_hex)
                                 dist = len(engmt.activeunit.path)
-                                engmt.activeunit.sp[1] -= 10+dist*5
+                                engmt.activeunit.update_sp(-(10+dist*5))
                                 engmt.activeunit.action = "move:anim"
-                                #engmt.activeunit.loc = mpos_hex
-                                #engmt.next()
                             if point_mode == 'paint:red':
                                 hexg.gridpts[mpos_hidx[0], mpos_hidx[1],2] = 1
                             if point_mode == 'paint:blue':
@@ -150,6 +148,8 @@ def gameloop(hexmap='load'):
                     if event.key == 97: engmt.activeunit.action = "atk:input"
                     #On T, reset screen offset target to (0,0)
                     if event.key == 116: hexg.sc_target = (0,0)
+                    #On R, recover stamina
+                    if event.key == 114: engmt.activeunit.update_sp(50)
                     #On ESC, exit game
                     if event.key == 27: gameExit = True
                         
@@ -361,16 +361,26 @@ class Engagement(HexGrid):
         self.hexg = hexg
         
         self.rect_r = pygame.image.load('rect-r.png')
-        self.rect_r = pygame.transform.scale(self.rect_r, (50, 8))
+        self.rect_rd = pygame.image.load('rect-rd.png')
+        #self.rect_r = pygame.transform.scale(self.rect_r, (50, 8))
         self.rect_y = pygame.image.load('rect-y.png')
-        self.rect_y = pygame.transform.scale(self.rect_y, (50, 8))
+        self.rect_yd = pygame.image.load('rect-yd.png')
+        #self.rect_y = pygame.transform.scale(self.rect_y, (50, 8))
         
-    def health_bar(self, y, x, pct):
-        bar = pygame.transform.scale(self.rect_r, (m.floor(50*pct/100), 6))
-        gameDisplay.blit(bar, (x-25+self.hexg.sc_off[1], y-3+self.hexg.sc_off[0]))
-    def stamina_bar(self, y, x, pct):
-        bar = pygame.transform.scale(self.rect_y, (m.floor(50*pct/100), 6))
-        gameDisplay.blit(bar, (x-25+self.hexg.sc_off[1], y+5+self.hexg.sc_off[0]))
+    def health_bar(self, y, x, hp):
+        high = max(hp[:2])/hp[2]
+        low = min(hp[:2])/hp[2]
+        bar_high = pygame.transform.scale(self.rect_rd, (m.floor(50*high), 6))
+        gameDisplay.blit(bar_high, (x-25+self.hexg.sc_off[1], y-3+self.hexg.sc_off[0]))
+        bar_low = pygame.transform.scale(self.rect_r, (m.floor(50*low), 6))
+        gameDisplay.blit(bar_low, (x-25+self.hexg.sc_off[1], y-3+self.hexg.sc_off[0]))
+    def stamina_bar(self, y, x, sp):
+        high = max(sp[:2])/sp[2]
+        low = min(sp[:2])/sp[2]
+        bar_high = pygame.transform.scale(self.rect_yd, (m.floor(50*high), 6))
+        gameDisplay.blit(bar_high, (x-25+self.hexg.sc_off[1], y+5+self.hexg.sc_off[0]))
+        bar_low = pygame.transform.scale(self.rect_y, (m.floor(50*low), 6))
+        gameDisplay.blit(bar_low, (x-25+self.hexg.sc_off[1], y+5+self.hexg.sc_off[0]))
     
     def add_unit(self, char):
         self.unitlist = np.append(self.unitlist, char)
@@ -419,10 +429,10 @@ class Engagement(HexGrid):
         for unit in self.unitlist[np.argsort(self.loclist[:,0])]:
             unit.anim((unit.loc[0]+self.hexg.sc_off[0], unit.loc[1]+self.hexg.sc_off[1]))
             #Update displayed hp & sp toward actual
-            if 0 < m.fabs(unit.hp[1]-unit.hp[0]) <= 5: unit.hp[0] = unit.hp[1]
-            elif 5 < m.fabs(unit.hp[1]-unit.hp[0]): unit.hp[0] += 5*np.sign(unit.hp[1]-unit.hp[0])
-            if 0 < m.fabs(unit.sp[1]-unit.sp[0]) <= 5: unit.sp[0] = unit.sp[1]
-            elif 5 < m.fabs(unit.sp[1]-unit.sp[0]): unit.sp[0] += 5*np.sign(unit.sp[1]-unit.sp[0])
+            if 0 < m.fabs(unit.hp[1]-unit.hp[0]) <= 1: unit.hp[0] = unit.hp[1]
+            elif 1 < m.fabs(unit.hp[1]-unit.hp[0]): unit.hp[0] += 1*np.sign(unit.hp[1]-unit.hp[0])
+            if 0 < m.fabs(unit.sp[1]-unit.sp[0]) <= 1: unit.sp[0] = unit.sp[1]
+            elif 1 < m.fabs(unit.sp[1]-unit.sp[0]): unit.sp[0] += 1*np.sign(unit.sp[1]-unit.sp[0])
     
     #Move to next unit in initiative order
     def next(self):
@@ -473,8 +483,8 @@ class Char(Engagement):
         self.pawn.fill(pygame.Color(0,0,0,0))
         self.pawn.blit(self.pawnsheet, (0,0), (0+60*m.floor(self.frameidx/5),0,self.pawndims[1],self.pawndims[0]))
         self.disp.blit(self.pawn,(loc[1]-25,loc[0]-95))
-        self.engmt.health_bar(self.loc[0], self.loc[1], self.hp[0]/self.hp[2]*100)
-        self.engmt.stamina_bar(self.loc[0], self.loc[1], self.sp[0]/self.sp[2]*100)
+        self.engmt.health_bar(self.loc[0], self.loc[1], self.hp)
+        self.engmt.stamina_bar(self.loc[0], self.loc[1], self.sp)
         
         #Increment or loop frame counter
         if self.frameidx < 14: self.frameidx += 1
