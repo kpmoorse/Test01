@@ -129,7 +129,7 @@ def gameloop(hexmap='load'):
                             if point_mode == 'move' and mpos_hex in hexg.tiles:
                                 engmt.activeunit.path = hexg.pathfind_bf(engmt.activeunit.loc, mpos_hex)
                                 dist = len(engmt.activeunit.path)
-                                engmt.activeunit.sp[0] -= 10+dist*5
+                                engmt.activeunit.sp[1] -= 10+dist*5
                                 engmt.activeunit.action = "move:anim"
                                 #engmt.activeunit.loc = mpos_hex
                                 #engmt.next()
@@ -418,6 +418,11 @@ class Engagement(HexGrid):
         self.hexg.cursor(self.activeunit.loc[0]+self.hexg.sc_off[0], self.activeunit.loc[1]+self.hexg.sc_off[1])
         for unit in self.unitlist[np.argsort(self.loclist[:,0])]:
             unit.anim((unit.loc[0]+self.hexg.sc_off[0], unit.loc[1]+self.hexg.sc_off[1]))
+            #Update displayed hp & sp toward actual
+            if 0 < m.fabs(unit.hp[1]-unit.hp[0]) <= 5: unit.hp[0] = unit.hp[1]
+            elif 5 < m.fabs(unit.hp[1]-unit.hp[0]): unit.hp[0] += 5*np.sign(unit.hp[1]-unit.hp[0])
+            if 0 < m.fabs(unit.sp[1]-unit.sp[0]) <= 5: unit.sp[0] = unit.sp[1]
+            elif 5 < m.fabs(unit.sp[1]-unit.sp[0]): unit.sp[0] += 5*np.sign(unit.sp[1]-unit.sp[0])
     
     #Move to next unit in initiative order
     def next(self):
@@ -426,7 +431,7 @@ class Engagement(HexGrid):
         else: self.turncount = 0
         self.activeunit = self.unitlist[self.turncount]
         self.hexg.sc_target = tplop(tplop(self.activeunit.loc,-1,"mult"), (400,400), "add")
-        self.activeunit.update_sp(self.activeunit.sp[0]/10)
+        self.activeunit.update_sp(self.activeunit.sp[1]/10)
         self.activeunit.action = "menu:input"
         print('Active: %s' % self.activeunit.name)
 
@@ -468,8 +473,8 @@ class Char(Engagement):
         self.pawn.fill(pygame.Color(0,0,0,0))
         self.pawn.blit(self.pawnsheet, (0,0), (0+60*m.floor(self.frameidx/5),0,self.pawndims[1],self.pawndims[0]))
         self.disp.blit(self.pawn,(loc[1]-25,loc[0]-95))
-        self.engmt.health_bar(self.loc[0], self.loc[1], self.hp[0]/self.hp[1]*100)
-        self.engmt.stamina_bar(self.loc[0], self.loc[1], self.sp[0]/self.sp[1]*100)
+        self.engmt.health_bar(self.loc[0], self.loc[1], self.hp[0]/self.hp[2]*100)
+        self.engmt.stamina_bar(self.loc[0], self.loc[1], self.sp[0]/self.sp[2]*100)
         
         #Increment or loop frame counter
         if self.frameidx < 14: self.frameidx += 1
