@@ -66,13 +66,19 @@ def gameloop(hexmap='load'):
                         hexg.gridpts[i,j,:] = [0.5*(i*1.5*hexg.s), j*m.sqrt(3)*hexg.s + (i%2)*m.sqrt(3)/2*hexg.s, 1]        
         
         #Place test pawns at start positions
+        engmt = Engagement(hexg)
+        
         origin,_ = hexg.nearest_hex(500, 250)
-        char1 = Char(gameDisplay, origin, 'Char1')
+        char1 = Char(gameDisplay, origin, 'Char1', engmt)
+        engmt.add_unit(char1)
         origin,_ = hexg.nearest_hex(100, 700)
-        char2 = Char(gameDisplay, origin, 'Char2')
+        char2 = Char(gameDisplay, origin, 'Char2', engmt)
+        engmt.add_unit(char2)
         origin,_ = hexg.nearest_hex(100, 600)
-        char3 = Char(gameDisplay, origin, 'Char3')
-        engmt = Engagement(hexg,[char1, char2, char3])
+        char3 = Char(gameDisplay, origin, 'Char3', engmt)
+        engmt.add_unit(char3)
+        
+        engmt.init_init()
         
         hexg.engmt = engmt
         
@@ -122,6 +128,8 @@ def gameloop(hexmap='load'):
                         if t_click < 0.2: #If click is short
                             if point_mode == 'move' and mpos_hex in hexg.tiles:
                                 engmt.activeunit.path = hexg.pathfind_bf(engmt.activeunit.loc, mpos_hex)
+                                dist = len(engmt.activeunit.path)
+                                engmt.activeunit.sp[0] -= 10+dist*5
                                 engmt.activeunit.action = "move:anim"
                                 #engmt.activeunit.loc = mpos_hex
                                 #engmt.next()
@@ -183,7 +191,7 @@ def gameloop(hexmap='load'):
         
     return 0
 
-class HexGrid:
+class HexGrid(object):
     
     #Initialize instance attributes
     def __init__(self):
@@ -250,6 +258,7 @@ class HexGrid:
   
         return tiles
     
+    #Return all tiles within <dist> tiles of <origin>, avoiding obstacles
     def path_check2(self, origin, dist, blktype="move_gnd"):
         visited = set()
         visited.add(origin)
@@ -268,6 +277,7 @@ class HexGrid:
         visited.remove(origin)
         return visited
     
+    #Display hexes within a given distance
     def disp_range(self, origin, dist, blktype="move_gnd"):
         self.tiles = self.path_check2(origin, dist, blktype)
         for tile in self.tiles:
@@ -344,21 +354,36 @@ class HexGrid:
         gameDisplay.blit(self.bgimg, (-120+self.sc_off[1],-150+self.sc_off[0]))
         
 
-class Engagement:
+class Engagement(HexGrid):
     
-    def __init__(self, hexg, unitlist):
-        self.unitlist = np.array(unitlist)
+    def __init__(self, hexg):
+        self.unitlist = np.empty((0,1))
         self.hexg = hexg
         
-        #Check initiatives and activate first character
-        self.check_init()
+        self.rect_r = pygame.image.load('rect-r.png')
+        self.rect_r = pygame.transform.scale(self.rect_r, (50, 8))
+        self.rect_y = pygame.image.load('rect-y.png')
+        self.rect_y = pygame.transform.scale(self.rect_y, (50, 8))
+        
+    def health_bar(self, y, x, pct):
+        bar = pygame.transform.scale(self.rect_r, (m.floor(50*pct/100), 6))
+        gameDisplay.blit(bar, (x-25+self.hexg.sc_off[1], y-3+self.hexg.sc_off[0]))
+    def stamina_bar(self, y, x, pct):
+        bar = pygame.transform.scale(self.rect_y, (m.floor(50*pct/100), 6))
+        gameDisplay.blit(bar, (x-25+self.hexg.sc_off[1], y+5+self.hexg.sc_off[0]))
+    
+    def add_unit(self, char):
+        self.unitlist = np.append(self.unitlist, char)
+    
+    #Check initiatives and activate first character
+    def init_init(self):
+        self.update_init()
         self.turncount = -1
         self.next()
-        
         self.check_locs()
     
     #Update and print initiative order
-    def check_init(self):
+    def update_init(self):
         self.initlist = np.empty([0])
         for unit in self.unitlist:
             self.initlist = np.append(self.initlist, unit.initiative)
@@ -367,7 +392,7 @@ class Engagement:
         for unit in self.unitlist:
             print('%s: %i' % (unit.name, unit.initiative))
         print('----------')
-    
+        
     #Update unit location list
     def check_locs(self):
         self.loclist = np.zeros((0,2))
@@ -401,22 +426,26 @@ class Engagement:
         else: self.turncount = 0
         self.activeunit = self.unitlist[self.turncount]
         self.hexg.sc_target = tplop(tplop(self.activeunit.loc,-1,"mult"), (400,400), "add")
+        self.activeunit.update_sp(self.activeunit.sp[0]/10)
         self.activeunit.action = "menu:input"
         print('Active: %s' % self.activeunit.name)
 
-class Char:
+class Char(Engagement):
     
     #Initialize character object
-    def __init__(self, disp, loc, name):
+    def __init__(self, disp, loc, name, engmt):
         self.name = name
         self.disp = disp
         self.loc = loc
+        self.engmt = engmt
         self.initiative = random.randint(1,21) #Randomize initiative order
         self.frameidx = random.randint(1,15) #Randomize frame offset
         self.mvmt = 3
         self.atkrng = 1
         self.action = "menu:input"
         self.path = []
+        self.hp = [100,100,100] #[display, actual, maximum]
+        self.sp = [100,100,100]
         
         self.pawnfile = 'sprite-sheet.png'
         self.pawnsheet = pygame.image.load(self.pawnfile)
@@ -424,11 +453,23 @@ class Char:
         self.pawnsheet = pygame.transform.scale(self.pawnsheet, (self.pawndims[0], self.pawndims[1]))
         self.pawn = pygame.Surface((60, self.pawndims[1]), pygame.SRCALPHA)
     
+    def update_hp(self, change):
+        self.hp[1] += change
+        if self.hp[1]>self.hp[2]: self.hp[1]=self.hp[2]
+        elif self.hp[1]<0: self.hp[1]=0
+        
+    def update_sp(self, change):
+        self.sp[1] += change
+        if self.sp[1]>self.sp[2]: self.sp[1]=self.sp[2]
+        elif self.sp[1]<0: self.sp[1]=0
+    
     #Cycle through animation frames
     def anim(self, loc, action='stand'):
         self.pawn.fill(pygame.Color(0,0,0,0))
         self.pawn.blit(self.pawnsheet, (0,0), (0+60*m.floor(self.frameidx/5),0,self.pawndims[1],self.pawndims[0]))
         self.disp.blit(self.pawn,(loc[1]-25,loc[0]-95))
+        self.engmt.health_bar(self.loc[0], self.loc[1], self.hp[0]/self.hp[1]*100)
+        self.engmt.stamina_bar(self.loc[0], self.loc[1], self.sp[0]/self.sp[1]*100)
         
         #Increment or loop frame counter
         if self.frameidx < 14: self.frameidx += 1
@@ -444,7 +485,6 @@ def tplop(a,b,op):
     if op=="mult": c = tuple(a[i]*b for i in range(len(a)))
 
     return c
-        
 
 e = gameloop(hexmap='load')
 pygame.quit()
